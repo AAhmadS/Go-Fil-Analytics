@@ -9,6 +9,11 @@ cd "$(dirname "$0")/.."
 echo "########## SMOKE 1/5 — bootstrap cluster ##########"
 ./bootstrap_cluster.sh
 
+echo "########## SMOKE 1.5/5 — settle ZooKeeper election ##########"
+echo "Automatic failover needs ~60s after (re)bootstrap before the Web UIs"
+echo "answer reliably; wait it out instead of racing it."
+sleep 60
+
 echo "########## SMOKE 2/5 — verify HA ##########"
 ./verify_gate1.sh
 
