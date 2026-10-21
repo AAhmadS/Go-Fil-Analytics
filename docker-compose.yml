@@ -1,0 +1,192 @@
+services:
+  zookeeper:
+    image: zookeeper:3.9
+    container_name: zookeeper
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+    ports:
+      - "2181:2181"
+    networks:
+      - bigdata-net
+
+  journalnode:
+    # bde2020 ships no journalnode image, so run the journalnode daemon from
+    # the namenode image (same hadoop dist). The entrypoint still generates
+    # /etc/hadoop/*-site.xml from the env vars below, then execs our command.
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: journalnode
+    command: ["hdfs", "journalnode"]
+    # Override the image's namenode-oriented HEALTHCHECK (curl :9870, which a
+    # journalnode never serves) with a journal-RPC port probe.
+    # NOTE: /bin/sh here is dash (no /dev/tcp) — use nc like entrypoint.sh does.
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8485 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    environment:
+      - CLUSTER_NAME=mycluster
+      - HDFS_CONF_dfs_journalnode_edits_dir=/hadoop/dfs/journal
+      - CORE_CONF_fs_defaultFS=hdfs://mycluster
+      - HDFS_CONF_dfs_nameservices=mycluster
+      - HDFS_CONF_dfs_ha_namenodes_mycluster=nn1,nn2
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn1=namenode1:8020
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn2=namenode2:8020
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn1=namenode1:9870
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn2=namenode2:9870
+      - HDFS_CONF_dfs_namenode_shared_edits_dir=qjournal://journalnode:8485/mycluster
+    ports:
+      - "8485:8485"
+    volumes:
+      - journalnode:/hadoop/dfs/journal
+    networks:
+      - bigdata-net
+
+  namenode1:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode1
+    environment:
+      - CLUSTER_NAME=mycluster
+      - CORE_CONF_fs_defaultFS=hdfs://mycluster
+      - HDFS_CONF_dfs_nameservices=mycluster
+      - HDFS_CONF_dfs_ha_namenodes_mycluster=nn1,nn2
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn1=namenode1:8020
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn2=namenode2:8020
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn1=namenode1:9870
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn2=namenode2:9870
+      - HDFS_CONF_dfs_namenode_shared_edits_dir=qjournal://journalnode:8485/mycluster
+      - HDFS_CONF_dfs_client_failover_proxy_provider_mycluster=org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+      - HDFS_CONF_ha_zookeeper_quorum=zookeeper:2181
+      - HDFS_CONF_dfs_ha_automatic___failover_enabled=true
+      - HDFS_CONF_dfs_ha_fencing_methods=shell(/bin/true)
+      - HDFS_CONF_dfs_namenode_name_dir=/hadoop/dfs/name
+      - SERVICE_PRECONDITION=journalnode:8485 zookeeper:2181
+    ports:
+      - "9870:9870"
+      - "8020:8020"
+    volumes:
+      - namenode1:/hadoop/dfs/name
+      - ./:/workspace
+    depends_on:
+      - journalnode
+      - zookeeper
+    networks:
+      - bigdata-net
+
+  namenode2:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode2
+    environment:
+      - CLUSTER_NAME=mycluster
+      - CORE_CONF_fs_defaultFS=hdfs://mycluster
+      - HDFS_CONF_dfs_nameservices=mycluster
+      - HDFS_CONF_dfs_ha_namenodes_mycluster=nn1,nn2
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn1=namenode1:8020
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn2=namenode2:8020
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn1=namenode1:9870
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn2=namenode2:9870
+      - HDFS_CONF_dfs_namenode_shared_edits_dir=qjournal://journalnode:8485/mycluster
+      - HDFS_CONF_dfs_client_failover_proxy_provider_mycluster=org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+      - HDFS_CONF_ha_zookeeper_quorum=zookeeper:2181
+      - HDFS_CONF_dfs_ha_automatic___failover_enabled=true
+      - HDFS_CONF_dfs_ha_fencing_methods=shell(/bin/true)
+      - HDFS_CONF_dfs_namenode_name_dir=/hadoop/dfs/name
+      - SERVICE_PRECONDITION=journalnode:8485 zookeeper:2181
+    ports:
+      - "9871:9870"
+    volumes:
+      - namenode2:/hadoop/dfs/name
+    depends_on:
+      - journalnode
+      - zookeeper
+    networks:
+      - bigdata-net
+
+  datanode1:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode1
+    environment:
+      - CLUSTER_NAME=mycluster
+      - CORE_CONF_fs_defaultFS=hdfs://mycluster
+      - HDFS_CONF_dfs_nameservices=mycluster
+      - HDFS_CONF_dfs_ha_namenodes_mycluster=nn1,nn2
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn1=namenode1:8020
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn2=namenode2:8020
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn1=namenode1:9870
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn2=namenode2:9870
+      - HDFS_CONF_dfs_client_failover_proxy_provider_mycluster=org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+      - HDFS_CONF_dfs_datanode_data_dir=/hadoop/dfs/data
+      - HDFS_CONF_dfs_replication=2
+      - SERVICE_PRECONDITION=namenode1:9870 namenode2:9870
+    volumes:
+      - datanode1:/hadoop/dfs/data
+    depends_on:
+      - namenode1
+      - namenode2
+    networks:
+      - bigdata-net
+
+  datanode2:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode2
+    environment:
+      - CLUSTER_NAME=mycluster
+      - CORE_CONF_fs_defaultFS=hdfs://mycluster
+      - HDFS_CONF_dfs_nameservices=mycluster
+      - HDFS_CONF_dfs_ha_namenodes_mycluster=nn1,nn2
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn1=namenode1:8020
+      - HDFS_CONF_dfs_namenode_rpc___address_mycluster_nn2=namenode2:8020
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn1=namenode1:9870
+      - HDFS_CONF_dfs_namenode_http___address_mycluster_nn2=namenode2:9870
+      - HDFS_CONF_dfs_client_failover_proxy_provider_mycluster=org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+      - HDFS_CONF_dfs_datanode_data_dir=/hadoop/dfs/data
+      - HDFS_CONF_dfs_replication=2
+      - SERVICE_PRECONDITION=namenode1:9870 namenode2:9870
+    volumes:
+      - datanode2:/hadoop/dfs/data
+    depends_on:
+      - namenode1
+      - namenode2
+    networks:
+      - bigdata-net
+
+  spark:
+    build:
+      context: ./spark
+    container_name: spark
+    user: root
+    working_dir: /workspace
+    environment:
+      - SPARK_MODE=client
+      - SPARK_MASTER=local[*]
+      - HDFS_URI=hdfs://mycluster
+      - HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
+      - YARN_CONF_DIR=/opt/hadoop/etc/hadoop
+    volumes:
+      - ./:/workspace
+      - ./hadoop-conf:/opt/hadoop/etc/hadoop:ro
+    command:
+      - sleep
+      - infinity
+    depends_on:
+      - namenode1
+      - namenode2
+      - datanode1
+      - datanode2
+      - zookeeper
+      - journalnode
+    networks:
+      - bigdata-net
+
+volumes:
+  namenode1:
+  namenode2:
+  datanode1:
+  datanode2:
+  journalnode:
+
+networks:
+  bigdata-net:
+    driver: bridge

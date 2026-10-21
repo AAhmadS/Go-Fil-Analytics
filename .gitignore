@@ -1,0 +1,16 @@
+# ---> parquet binaries, local wheels, editor backups
+*.parquet
+*.pyc
+__pycache__/
+# ---> hadoop runtime state (never commit namenode/journal/datanode data)
+data/yellow_tripdata_*.parquet
+!data/.gitkeep
+# ---> java build output
+spark-app/target/
+*.class
+*.jar
+# ---> OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.iml
