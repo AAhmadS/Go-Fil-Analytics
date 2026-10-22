@@ -1,42 +1,38 @@
 # Homework 5 — Scenario Verification Report (live execution, 2026-10-22)
 
-Environment: Docker Compose cluster `hdfs://mycluster` (zookeeper, journalnode,
-namenode1/namenode2, datanode1/datanode2, spark) on network `bigdata-net`.
-No `cmd/scenarios/` runner exists in this repo (Go prototype removed in Gate 1);
-every scenario below was executed directly via container CLI / spark-submit and
-the real outputs are quoted verbatim (timestamps trimmed for readability).
+Environment: Docker Compose cluster `hdfs://mycluster` (zookeeper, journalnode, namenode1/namenode2, datanode1/datanode2, spark) on network `bigdata-net`. No `cmd/scenarios/` runner exists in this repo (Go prototype removed in Gate 1); every scenario below was executed directly via container CLI / spark-submit and the real outputs are quoted verbatim. The requirement text of each scenario is quoted exactly (in Persian) from the assignment statement («تمرین سری ۵ | جرقه و فیل»).
 
 Scenario 1: HDFS High Availability & Services Startup
-HDFS cluster running with HA support, including two NameNodes (one active, one standby), multiple DataNodes, one JournalNode for failover, ZooKeeper container, separate Spark container on the same Docker network, and Web UI accessible on port 9870.
+در ابتدا یک HDFS cluster با پشتیبانی از High Availability راه‌اندازی می‌شود. این cluster باید شامل دو NameNode (active و standby)، چند DataNode، و یک JournalNode باشد تا failover به درستی انجام شود. همچنین از یک container برای Zookeeper استفاده می‌شود. ارتباط بین serviceها از طریق Docker network داخلی برقرار خواهد بود. سرویس‌های مورد نیاز: hadoop-namenode (با HA)، hadoop-datanode، journalnode، zookeeper، و spark (در container جداگانه). پس از راه‌اندازی، Web UI مربوط به HDFS باید از طریق port 9870 قابل دسترس باشد. همچنین آدرس دسترسی به HDFS باید به صورت hdfs://<logical-namenode-uri>/ قابل استفاده باشد و در کدهای Spark همین URI به عنوان ورودی تنظیم شود.
 What we ran: `docker compose ps`; `docker compose exec -T namenode1 hdfs haadmin -getServiceState nn1`; same for `nn2`; HTTP check on `http://localhost:9870/`; `hdfs dfsadmin -report -live`.
-Result (exit 0 throughout): all 7 containers `Up (healthy)` on `bigdata-net`; `nn1 -> active`, `nn2 -> standby` ("OK: HA pair is healthy (one active, one standby)"); Web UI `HTTP 200` on `:9870` (and `:9871`); `dfsadmin -report` shows live DataNodes, `Configured Capacity: 2162202353664 (1.97 TB)`, `Missing blocks: 0`, `Under replicated blocks: 0`.
+Result (exit code 0 throughout): all 7 containers `Up (healthy)` on `bigdata-net`; `nn1 -> active`, `nn2 -> standby` ("OK: HA pair is healthy (one active, one standby)"); Web UI `HTTP 200` on `:9870` (and `:9871`); `dfsadmin -report` shows live DataNodes, `Configured Capacity: 2162202353664 (1.97 TB)`, `Missing blocks: 0`, `Under replicated blocks: 0`.
 
 Scenario 2: Data Ingestion to HDFS CLI
-Transfer of `yellow_tripdata_<date>.parquet` and `taxi_zone_lookup.csv` into HDFS path `/data/taxi/` via container CLI, ensuring the exact `hdfs://` URI is used with no reliance on the local container filesystem.
+دو فایل داده شامل موارد زیر هستند: yellow_tripdata_<date>.parquet : این فایل شامل نمونه‌ای از اطلاعات سفرهای تاکسی زرد در شهر نیویورک است. هر ردیف نشان‌دهنده یک سفر مجزاست و اطلاعاتی مانند زمان، تعداد مسافر، فاصله، مبالغ پرداختی، محل سوار و پیاده شدن، نوع پرداخت و غیره را شامل می‌شود. taxi_zone_lookup.csv : این فایل برای نگاشت LocationIDها به نام ناحیه و borough استفاده می‌شود. شامل ستون‌هایی مانند Zone ،Borough ،LocationID و Service Zone است. بعد از بالا آمدن کامل cluster، این دو فایل باید به مسیر /data/taxi/ در HDFS منتقل شوند. این کار باید از طریق CLI در یک container انجام شود. آدرس دقیق URI در HDFS باید در همه‌ی برنامه‌ها و pipelineها رعایت شود و از سیستم فایل محلی استفاده نشود.
 What we ran: `bash scripts/upload_to_hdfs.sh` (executes `hdfs dfs -mkdir -p hdfs://mycluster/data/taxi hdfs://mycluster/output`, `hdfs dfs -put -f /workspace/data/yellow_tripdata_2025-10.parquet hdfs://mycluster/data/taxi/`, same for the CSV, then `hdfs dfs -ls hdfs://mycluster/data/taxi/`).
 Result (script EXIT 0): `Found 2 items` — `-rw-r--r-- 3 root supergroup 12331 taxi_zone_lookup.csv`, `-rw-r--r-- 3 root supergroup 75267589 yellow_tripdata_2025-10.parquet` (timestamps 2026-10-22 20:04).
 
 Scenario 3: Spark Connectivity to HDFS HA URI
-Spark container configured with Java runtime and SparkSession connecting to the logical NameNode URI `hdfs://<logical-namenode-uri>/` for input and output paths.
+برنامه‌های تحلیلی باید در یک container جداگانه اجرا شوند که Apache Spark به همراه Java runtime در آن نصب شده است. این container باید قابلیت اتصال به HDFS cluster را داشته باشد و بتواند داده‌ها را از HDFS بخواند و نتیجه را در همانجا بنویسد. در فایل‌های مربوط به Spark باید SparkSession به گونه‌ای تنظیم شود که HDFS URI را بشناسد. همچنین مسیرهای ورودی و خروجی در همه‌ی jobها به صورت کامل با hdfs://... تعریف شوند. کدهای تحلیلی باید به زبان Java و با استفاده از Dataset API در Apache Spark نوشته شوند. برای هر سؤال، یک خروجی به فرمت Parquet تولید و در HDFS ذخیره می‌شود.
 What we ran: `docker compose exec -T spark spark-submit --master local[*] /tmp/ha_smoke.py` (PySpark session with `spark.hadoop.fs.defaultFS=hdfs://mycluster`, `dfs.nameservices=mycluster`, `dfs.ha.namenodes.mycluster=nn1,nn2`, rpc-addresses for both NameNodes, `ConfiguredFailoverProxyProvider`; then `spark.read.parquet("hdfs://mycluster/data/taxi/yellow_tripdata_*.parquet")` + zone CSV read + counts).
 Result (EXIT 0): `fs.defaultFS = hdfs://mycluster`; `trip rows = 4428699`; `trip cols = 20`; `zone rows = 265`; `HA_HANDSHAKE_OK`.
 
 Scenario 4: Analysis 1 (Long Trips with Duration)
-Filter trips with `passenger_count > 2` and `trip_distance > 5` miles, compute new column `duration_minutes` (difference between pickup and dropoff in minutes), sort descending by `duration_minutes`, and save as Parquet to `/output/q1_long_trips.parquet`.
-What we ran: `bash scripts/run_spark_jobs.sh q1` equivalent via `run_spark_jobs.sh all` → `mvn clean package` + `spark-submit --class com.taxi.analytics.TaxiAnalysisJob --master local[*] spark-analytics-1.0.0.jar all`; then `hdfs dfs -ls hdfs://mycluster/output/q1_long_trips.parquet`.
+تحلیل ۱: اطلاعات سفرهایی را که در آن‌ها تعداد مسافران بیشتر از دو نفر است و فاصله سفر بیشتر از ۵ مایل بوده، استخراج کرده و یک ستون جدید به نام duration_minutes ایجاد شود که اختلاف بین زمان pickup و dropoff را به دقیقه محاسبه می‌کند. نتیجه باید بر اساس duration_minutes به صورت نزولی مرتب شود و در یک فایل Parquet ذخیره گردد. خروجی در مسیر /output/q1_long_trips.parquet روی HDFS ذخیره می‌شود.
+What we ran: `bash scripts/run_spark_jobs.sh all` → `mvn clean package` + `spark-submit --class com.taxi.analytics.TaxiAnalysisJob --master local[*] spark-analytics-1.0.0.jar all`; then `hdfs dfs -ls hdfs://mycluster/output/q1_long_trips.parquet`.
 Result (EXIT 0): `[Q1] input row count = 4428699`, `[Q1] filtered row count = 36180`; preview (top 5 longest) shows `duration_minutes` up to `1439.83` (e.g. VendorID 2, 2025-10-22 pickup, 6 passengers, 21.68 miles, fare 70.0); `hdfs dfs -ls` → `_SUCCESS` (0 B) + `part-00000` (463,994 B) + `part-00001` (576,120 B); `[Q1] wrote hdfs://mycluster/output/q1_long_trips.parquet`.
 
 Scenario 5: Analysis 2 (Average Fare per Zone)
-Join trip data with `taxi_zone_lookup.csv` on `PULocationID = LocationID`, group by `Zone`, compute average `fare_amount`, output `Zone`, `Borough`, and average fare, and save as Parquet to `/output/q2_avg_fare_by_zone.parquet`.
+تحلیل ۲: میانگین fare_amount برای هر Zone بر اساس محل pickup محاسبه شود. ابتدا یک join با فایل CSV نگاشت روی ستون PULocationID = LocationID انجام شود. سپس گروه‌بندی بر اساس Zone انجام شده و میانگین محاسبه گردد. خروجی شامل Zone، Borough و مقدار میانگین باشد. خروجی در مسیر /output/q2_avg_fare_by_zone.parquet روی HDFS ذخیره می‌شود.
 What we ran: same `spark-submit` run (STEP 2); then `hdfs dfs -ls hdfs://mycluster/output/q2_avg_fare_by_zone.parquet`.
 Result (EXIT 0): `[Q2] groups = 261` over 265 zones; preview `|Zone|Borough|avg_fare_amount|` includes `|East Village|Manhattan|13.6008|`, `|Whitestone|Queens|25.3032|`; `hdfs dfs -ls` → `_SUCCESS` (0 B) + `part-00000` (6,690 B); wrote `hdfs://mycluster/output/q2_avg_fare_by_zone.parquet`.
 
 Scenario 6: Analysis 3 (Revenue and Trip Count by Destination Borough)
-Join trip data with `taxi_zone_lookup.csv` on `DOLocationID = LocationID`, group by `Borough`, compute sum of `total_amount` and total trip count, and save as Parquet to `/output/q3_revenue_by_borough.parquet`.
+تحلیل ۳: کل مبلغ total_amount و تعداد سفرها برای هر Borough که مقصد سفر در آن قرار دارد محاسبه شود. در این بخش join روی ستون DOLocationID = LocationID انجام شده و بعد از گروه‌بندی بر اساس Borough مجموع و تعداد سفرها به دست آید. خروجی در مسیر /output/q3_revenue_by_borough.parquet روی HDFS ذخیره می‌شود.
 What we ran: same `spark-submit` run (STEP 3); then `hdfs dfs -ls hdfs://mycluster/output/q3_revenue_by_borough.parquet`.
 Result (EXIT 0): `[Q3] boroughs = 8`; preview `|Borough|total_revenue|trip_count|` includes `|Queens|1.14005E7|247883|`, `|Brooklyn|9652736.79|254362|`, `|Staten Island|98953.17|1249|`; `hdfs dfs -ls` → `_SUCCESS` (0 B) + `part-00000` (1,207 B); wrote `hdfs://mycluster/output/q3_revenue_by_borough.parquet`.
 
 Scenario 7: Analysis 4 (Maximum Tip Amount per Day)
-Extract date from pickup timestamp, group by date, compute maximum `tip_amount`, output date and max tip, and save as Parquet to `/output/q4_max_tip_per_day.parquet`.
+تحلیل ۴: برای هر روز، بیشترین مقدار tip_amount ثبت‌شده محاسبه شود. ابتدا باید از ستون زمان، تاریخ استخراج شده و سپس برای هر روز بیشترین انعام محاسبه شود. خروجی شامل تاریخ و مقدار حداکثری tip باشد. خروجی در مسیر /output/q4_max_tip_per_day.parquet روی HDFS ذخیره می‌شود.
 What we ran: same `spark-submit` run (STEP 4, `=== [DONE] requested steps [q1, q2, q3, q4] finished`); then `hdfs dfs -ls hdfs://mycluster/output/q4_max_tip_per_day.parquet`.
 Result (EXIT 0): `[Q4] days = 33`; preview `|trip_date|max_tip_amount|` includes `|2025-09-30|4.27|`, `|2025-10-01|110.0|`, `|2025-10-02|90.0|`; `hdfs dfs -ls` → `_SUCCESS` (0 B) + `part-00000` (1,103 B); wrote `hdfs://mycluster/output/q4_max_tip_per_day.parquet`.
